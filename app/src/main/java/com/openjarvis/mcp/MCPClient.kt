@@ -15,10 +15,10 @@ class MCPClient(
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
-    
+
     private var isConnected = false
     private var availableTools = emptyList<MCPTool>()
-    
+
     suspend fun connect(): Boolean = withContext(Dispatchers.IO) {
         try {
             val requestBody = JSONObject().apply {
@@ -34,27 +34,31 @@ class MCPClient(
                     })
                 })
             }.toString()
-            
+
             val request = Request.Builder()
                 .url(server.url)
-                .post(okhttp3.RequestBody.create(
-                    "application/json".toByteArray().to okhttp3.MediaType.get("application/json"),
-                    requestBody
-                ))
+                .post(
+                    okhttp3.RequestBody.create(
+                        okhttp3.MediaType.get("application/json"),
+                        requestBody
+                    )
+                )
                 .build()
-            
+
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     return@withContext false
                 }
-                
-                val body = response.body?.string() ?: return@withContext false
+
+                val body = response.body?.string()
+                    ?: return@withContext false
+
                 val json = JSONObject(body)
-                
+
                 if (json.has("error")) {
                     return@withContext false
                 }
-                
+
                 isConnected = true
                 true
             }
@@ -63,43 +67,49 @@ class MCPClient(
             false
         }
     }
-    
+
     suspend fun listTools(): List<MCPTool> = withContext(Dispatchers.IO) {
         if (!isConnected) {
             disconnect()
             return@withContext emptyList()
         }
-        
+
         try {
             val requestBody = JSONObject().apply {
                 put("jsonrpc", "2.0")
                 put("id", 2)
                 put("method", "tools/list")
             }.toString()
-            
+
             val request = Request.Builder()
                 .url(server.url)
-                .post(okhttp3.RequestBody.create(
-                    "application/json".toByteArray().to okhttp3.MediaType.get("application/json"),
-                    requestBody
-                ))
+                .post(
+                    okhttp3.RequestBody.create(
+                        okhttp3.MediaType.get("application/json"),
+                        requestBody
+                    )
+                )
                 .build()
-            
+
             client.newCall(request).execute().use { response ->
-                val body = response.body?.string() ?: return@withContext emptyList()
+                val body = response.body?.string()
+                    ?: return@withContext emptyList()
+
                 val json = JSONObject(body)
-                val toolsArray = json.optJSONArray("result")?.optJSONArray("tools")
+                val toolsArray = json.optJSONObject("result")
+                    ?.optJSONArray("tools")
                     ?: JSONArray()
-                
+
                 availableTools = (0 until toolsArray.length()).map { i ->
                     val tool = toolsArray.getJSONObject(i)
+
                     MCPTool(
                         name = tool.getString("name"),
                         description = tool.optString("description", ""),
                         inputSchema = tool.optJSONObject("inputSchema")
                     )
                 }
-                
+
                 availableTools
             }
         } catch (e: Exception) {
@@ -107,13 +117,16 @@ class MCPClient(
             emptyList()
         }
     }
-    
-    suspend fun callTool(toolName: String, arguments: JSONObject): String = withContext(Dispatchers.IO) {
+
+    suspend fun callTool(
+        toolName: String,
+        arguments: JSONObject
+    ): String = withContext(Dispatchers.IO) {
         if (!isConnected) {
             disconnect()
             return@withContext "Error: Not connected"
         }
-        
+
         try {
             val requestBody = JSONObject().apply {
                 put("jsonrpc", "2.0")
@@ -124,42 +137,50 @@ class MCPClient(
                     put("arguments", arguments)
                 })
             }.toString()
-            
+
             val request = Request.Builder()
                 .url(server.url)
-                .post(okhttp3.RequestBody.create(
-                    "application/json".toByteArray().to okhttp3.MediaType.get("application/json"),
-                    requestBody
-                ))
+                .post(
+                    okhttp3.RequestBody.create(
+                        okhttp3.MediaType.get("application/json"),
+                        requestBody
+                    )
+                )
                 .build()
-            
+
             client.newCall(request).execute().use { response ->
-                val body = response.body?.string() ?: return@withContext "Error: Empty response"
+                val body = response.body?.string()
+                    ?: return@withContext "Error: Empty response"
+
                 val json = JSONObject(body)
-                
+
                 if (json.has("error")) {
-                    return@withContext "Error: ${json.getJSONObject("error").optString("message")}"
+                    return@withContext "Error: ${
+                        json.getJSONObject("error")
+                            .optString("message")
+                    }"
                 }
-                
-                json.optJSONArray("result")
+
+                json.optJSONObject("result")
+                    ?.optJSONArray("content")
                     ?.optJSONObject(0)
-                    ?.optString("content")
+                    ?.optString("text")
                     ?: "Tool executed"
             }
         } catch (e: Exception) {
             "Error: ${e.message}"
         }
     }
-    
+
     fun disconnect() {
         isConnected = false
         availableTools = emptyList()
     }
-    
+
     fun isConnected(): Boolean = isConnected
-    
+
     fun getToolCount(): Int = availableTools.size
-    
+
     companion object {
         const val HTTP = "http"
         const val SSE = "sse"
